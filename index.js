@@ -16,29 +16,26 @@ const FEED_CSV_PATH = './feed_content.csv';
 let existingFeeds = [];
 fs.createReadStream(FEED_CSV_PATH)
   .pipe(parse({ columns: true }))
-  .on('data', (row) => {
+  .on('data', row => {
     if (row['피드내용']) existingFeeds.push(row['피드내용']);
   })
-  .on('end', () => {
-    console.log(`Loaded ${existingFeeds.length} existing feeds`);
-  });
+  .on('end', () => console.log(`Loaded ${existingFeeds.length} existing feeds`));
 
-// 안전하게 feed 생성
+// POST 요청 처리
 app.post('/generateFeed', async (req, res) => {
   try {
-    console.log('Received request body:', req.body);
+    console.log('Received request body:', JSON.stringify(req.body, null, 2));
 
     const { centerName, videoMeta, recentFeeds } = req.body;
 
     if (!centerName || !videoMeta || !recentFeeds) {
-      console.log('Missing parameters:', { centerName, videoMeta, recentFeeds });
+      console.warn('Missing parameters:', { centerName, videoMeta, recentFeeds });
       return res.status(400).send('Missing parameters');
     }
 
-    // recentFeeds가 비어있으면 '없음' 처리
+    // 빈 recentFeeds 처리
     const recentText = recentFeeds.length ? recentFeeds.join('\n') : '없음';
 
-    // Claude 프롬프트 구성
     const prompt = `
 너는 헬스장 전문 인스타그램 피드 카피라이터야.
 규칙:
@@ -56,9 +53,6 @@ ${JSON.stringify(videoMeta)}
 ${recentText}
 `;
 
-    // 요청 payload 확인용 로그
-    console.log('Prompt to Claude API:', prompt);
-
     const payload = {
       model: 'claude-2',
       prompt: prompt,
@@ -70,29 +64,28 @@ ${recentText}
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': CLAUDE_API_KEY
+        'x-api-key': CLAUDE_API_KEY,
+        'anthropic-version': '2023-06-01' // ⚠️ 필수
       },
       body: JSON.stringify(payload)
     });
 
     const data = await response.json();
-    console.log('Claude API response:', JSON.stringify(data));
+    console.log('Claude API response:', JSON.stringify(data, null, 2));
 
     let feedText = '';
-    if (data?.completion) feedText = data.completion.trim();
-    else {
-      console.warn('⚠️ Claude API returned empty feedText or error');
+    if (data?.completion?.trim()) {
+      feedText = data.completion.trim();
+    } else {
+      console.warn('⚠️ Claude API returned empty feedText or error, returning fallback');
       feedText = '[피드 생성 실패]';
     }
 
     res.json({ feedText });
-
   } catch (err) {
-    console.error('Error in /generateFeed:', err);
-    res.status(500).send('Error generating feed');
+    console.error('Error generating feed:', err);
+    res.status(500).json({ feedText: '[피드 생성 실패]', error: err.message || err });
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`MCP server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`MCP server running on port ${PORT}`));
