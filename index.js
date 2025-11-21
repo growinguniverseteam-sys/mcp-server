@@ -27,8 +27,15 @@ fs.createReadStream(FEED_CSV_PATH)
 // GAS에서 POST 요청 보내면 처리
 app.post('/generateFeed', async (req, res) => {
   try {
+    console.log('Received request body:', req.body);  // ← 추가
+
     const { centerName, videoMeta, recentFeeds } = req.body;
-    if (!centerName || !videoMeta) return res.status(400).send('Missing parameters');
+
+    // 필수값 체크
+    if (!centerName || !videoMeta || !recentFeeds) {
+      console.log('Missing parameters:', { centerName, videoMeta, recentFeeds }); // ← 추가
+      return res.status(400).send('Missing parameters');
+    }
 
     // Claude 프롬프트 구성
     const prompt = `
