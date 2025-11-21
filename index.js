@@ -1,99 +1,61 @@
-// mcp-server/index.js
-import 'dotenv/config';
+// server.js (또는 generateFeed.js)
 import express from 'express';
-import fs from 'fs';
-import { parse } from 'csv-parse';
 import fetch from 'node-fetch';
 
 const app = express();
 app.use(express.json());
 
-const PORT = process.env.PORT || 8080;
-const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY;
-const FEED_CSV_PATH = './feed_content.csv';
+const CLAUDE_API_KEY = process.env.ANTHROPIC_API_KEY;
+const CLAUDE_MODEL = 'claude-haiku-4-5-20251001';
+const CLAUDE_VERSION = '20251001';
 
-// CSV 읽어서 기존 피드 로딩
-let existingFeeds = [];
-fs.createReadStream(FEED_CSV_PATH)
-  .pipe(parse({ columns: true }))
-  .on('data', row => {
-    if (row['피드내용']) existingFeeds.push(row['피드내용']);
-  })
-  .on('end', () => console.log(`Loaded ${existingFeeds.length} existing feeds`));
-
-// POST 요청 처리
 app.post('/generateFeed', async (req, res) => {
   try {
-    console.log('Received request body:', JSON.stringify(req.body, null, 2));
-
     const { centerName, videoMeta, recentFeeds } = req.body;
-
-    if (!centerName || !videoMeta || !recentFeeds) {
-      console.warn('Missing parameters:', { centerName, videoMeta, recentFeeds });
-      return res.status(400).send('Missing parameters');
+    if (!centerName || !videoMeta) {
+      return res.status(400).json({ error: 'centerName과 videoMeta 필수' });
     }
 
-    const recentText = recentFeeds.length ? recentFeeds.join('\n') : '없음';
+    // GAS에서 전달받은 데이터로 프롬프트 구성
+    const prompt = `
+센터명: ${centerName}
+영상 정보: ${videoMeta.fileName} (${videoMeta.videoDesc})
+최근 피드: ${recentFeeds.join(' | ')}
 
-    // Messages API 구조
-    const messages = [
-      {
-        role: 'system',
-        content: `너는 헬스장 전문 인스타그램 피드 카피라이터야.
-규칙:
-- 한국어로 작성
-- 센터 입장에서 부드럽고 친근하게
-- 2~3문장
-- 최근 예시와 겹치지 않게 작성
-- 마지막 문장 끝에 이모지 하나
-- 영상에 없는 정보 임의로 추가 금지`
-      },
-      {
-        role: 'user',
-        content: `영상 메타데이터:
-${JSON.stringify(videoMeta)}
+위 정보를 참고해서 인스타그램용 피드 문구를 1개 생성해줘.
+`;
 
-최근 피드 예시:
-${recentText}`
-      }
-    ];
-
-    const payload = {
-      model: 'claude-haiku-4-5-20251001', // 사용 가능한 모델
-      messages: messages,
-      max_tokens_to_sample: 300,
-      temperature: 0.7
-    };
-
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    // Claude API 호출
+    const claudeRes = await fetch('https://api.anthropic.com/v1/complete', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': CLAUDE_API_KEY
+        'x-api-key': CLAUDE_API_KEY,
+        'anthropic-version': CLAUDE_VERSION
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({
+        model: CLAUDE_MODEL,
+        prompt: prompt,
+        max_tokens_to_sample: 300
+      })
     });
 
-    const data = await response.json();
-    console.log('Claude API response:', JSON.stringify(data, null, 2));
-
-    let feedText = '';
-    // Messages API 응답 확인
-    if (data?.completion?.length && data.completion[0].content) {
-      feedText = data.completion[0].content.trim();
-    } else if (data?.message?.content) {
-      // 혹시 메시지 형태로 오는 경우
-      feedText = data.message.content.trim();
-    } else {
-      console.warn('⚠️ Claude API returned empty feedText or error, returning fallback');
-      feedText = '[피드 생성 실패]';
+    if (!claudeRes.ok) {
+      const text = await claudeRes.text();
+      throw new Error(`Claude 호출 실패: ${claudeRes.status} ${text}`);
     }
 
-    res.json({ feedText });
+    const claudeData = await claudeRes.json();
+    const feedText = claudeData.completion || '';
+
+    return res.json({ feedText });
   } catch (err) {
-    console.error('Error generating feed:', err);
-    res.status(500).json({ feedText: '[피드 생성 실패]', error: err.message || err });
+    console.error('generateFeed 오류:', err);
+    return res.status(500).json({ error: err.message || '서버 오류' });
   }
 });
 
-app.listen(PORT, () => console.log(`MCP server running on port ${PORT}`));
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => {
+  console.log(`MCP 서버 실행 중: http://localhost:${PORT}`);
+});
