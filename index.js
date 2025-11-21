@@ -36,8 +36,9 @@ app.post('/generateFeed', async (req, res) => {
     // 빈 recentFeeds 처리
     const recentText = recentFeeds.length ? recentFeeds.join('\n') : '없음';
 
+    // Claude 형식에 맞게 prompt 구성
     const prompt = `
-너는 헬스장 전문 인스타그램 피드 카피라이터야.
+\n\nHuman: 다음 영상 정보를 기반으로 인스타그램 피드 글을 생성해주세요.
 규칙:
 - 한국어로 작성
 - 센터 입장에서 부드럽고 친근하게
@@ -46,11 +47,13 @@ app.post('/generateFeed', async (req, res) => {
 - 마지막 문장 끝에 이모지 하나
 - 영상에 없는 정보 임의로 추가 금지
 
-메타데이터:
+영상 메타데이터:
 ${JSON.stringify(videoMeta)}
 
-최근 피드 예시 (중복 피드 방지):
+최근 피드 예시:
 ${recentText}
+
+Assistant:
 `;
 
     const payload = {
@@ -65,7 +68,7 @@ ${recentText}
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': CLAUDE_API_KEY,
-        'anthropic-version': '2023-06-01' // ⚠️ 필수
+        'anthropic-version': '2023-06-01' // 필수
       },
       body: JSON.stringify(payload)
     });
