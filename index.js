@@ -3,7 +3,7 @@ import 'dotenv/config';
 import express from 'express';
 import fs from 'fs';
 import { parse } from 'csv-parse';
-import fetch from 'node-fetch';   // <= 이거 추가하는 걸 추천!
+import fetch from 'node-fetch';
 
 const app = express();
 app.use(express.json());
@@ -27,17 +27,15 @@ fs.createReadStream(FEED_CSV_PATH)
 // GAS에서 POST 요청 보내면 처리
 app.post('/generateFeed', async (req, res) => {
   try {
-    console.log('Received request body:', req.body);  // ← 추가
+    console.log('Received request body:', req.body);
 
     const { centerName, videoMeta, recentFeeds } = req.body;
 
-    // 필수값 체크
     if (!centerName || !videoMeta || !recentFeeds) {
-      console.log('Missing parameters:', { centerName, videoMeta, recentFeeds }); // ← 추가
+      console.log('Missing parameters:', { centerName, videoMeta, recentFeeds });
       return res.status(400).send('Missing parameters');
     }
 
-    // Claude 프롬프트 구성
     const prompt = `
 너는 헬스장 전문 인스타그램 피드 카피라이터야.
 규칙:
@@ -76,10 +74,25 @@ ${recentFeeds.join('\n')}
     });
 
     const data = await response.json();
-    const feedText = data?.completion?.trim() || '';
+
+    // 전체 응답 로그
+    console.log('Claude API response:', JSON.stringify(data, null, 2));
+
+    // completion 처리 (문자열 또는 객체)
+    let feedText = '';
+    if (typeof data.completion === 'string') {
+      feedText = data.completion.trim();
+    } else if (data.completion?.text) {
+      feedText = data.completion.text.trim();
+    }
+
+    if (!feedText) {
+      console.warn('⚠️ Claude API returned empty feedText');
+    }
+
     res.json({ feedText });
   } catch (err) {
-    console.error(err);
+    console.error('Error generating feed:', err);
     res.status(500).send('Error generating feed');
   }
 });
