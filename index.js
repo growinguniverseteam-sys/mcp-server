@@ -33,41 +33,43 @@ app.post('/generateFeed', async (req, res) => {
       return res.status(400).send('Missing parameters');
     }
 
-    // 빈 recentFeeds 처리
     const recentText = recentFeeds.length ? recentFeeds.join('\n') : '없음';
 
-    // Claude 형식에 맞게 prompt 구성
-    const prompt = `
-\n\nHuman: 다음 영상 정보를 기반으로 인스타그램 피드 글을 생성해주세요.
+    // Messages API 구조
+    const messages = [
+      {
+        role: 'system',
+        content: `너는 헬스장 전문 인스타그램 피드 카피라이터야.
 규칙:
 - 한국어로 작성
 - 센터 입장에서 부드럽고 친근하게
 - 2~3문장
-- 최근 예시와 표현이 겹치지 않게 작성
+- 최근 예시와 겹치지 않게 작성
 - 마지막 문장 끝에 이모지 하나
-- 영상에 없는 정보 임의로 추가 금지
-
-영상 메타데이터:
+- 영상에 없는 정보 임의로 추가 금지`
+      },
+      {
+        role: 'user',
+        content: `영상 메타데이터:
 ${JSON.stringify(videoMeta)}
 
 최근 피드 예시:
-${recentText}
-
-Assistant:
-`;
+${recentText}`
+      }
+    ];
 
     const payload = {
-  model: 'claude-haiku-4-5-20251001', // ✅ 여기에 본인 모델 이름 사용
-  prompt: prompt,
-  max_tokens_to_sample: 300,
-  temperature: 0.7
-};
-    const response = await fetch('https://api.anthropic.com/v1/complete', {
+      model: 'claude-haiku-4-5-20251001', // 사용 가능한 모델
+      messages: messages,
+      max_tokens_to_sample: 300,
+      temperature: 0.7
+    };
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': CLAUDE_API_KEY,
-        'anthropic-version': '2023-06-01' // 필수
+        'x-api-key': CLAUDE_API_KEY
       },
       body: JSON.stringify(payload)
     });
@@ -76,8 +78,12 @@ Assistant:
     console.log('Claude API response:', JSON.stringify(data, null, 2));
 
     let feedText = '';
-    if (data?.completion?.trim()) {
-      feedText = data.completion.trim();
+    // Messages API 응답 확인
+    if (data?.completion?.length && data.completion[0].content) {
+      feedText = data.completion[0].content.trim();
+    } else if (data?.message?.content) {
+      // 혹시 메시지 형태로 오는 경우
+      feedText = data.message.content.trim();
     } else {
       console.warn('⚠️ Claude API returned empty feedText or error, returning fallback');
       feedText = '[피드 생성 실패]';
