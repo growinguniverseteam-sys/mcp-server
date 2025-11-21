@@ -8,13 +8,12 @@ import fetch from 'node-fetch';
 const app = express();
 app.use(express.json());
 
-const PORT = 8080;
+const PORT = process.env.PORT || 8080;
 const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY;
 const FEED_CSV_PATH = './feed_content.csv';
 
 // CSV 읽어서 기존 피드 로딩
 let existingFeeds = [];
-
 fs.createReadStream(FEED_CSV_PATH)
   .pipe(parse({ columns: true }))
   .on('data', (row) => {
@@ -24,7 +23,7 @@ fs.createReadStream(FEED_CSV_PATH)
     console.log(`Loaded ${existingFeeds.length} existing feeds`);
   });
 
-// GAS에서 POST 요청 보내면 처리
+// 안전하게 feed 생성
 app.post('/generateFeed', async (req, res) => {
   try {
     console.log('Received request body:', req.body);
@@ -36,6 +35,10 @@ app.post('/generateFeed', async (req, res) => {
       return res.status(400).send('Missing parameters');
     }
 
+    // recentFeeds가 비어있으면 '없음' 처리
+    const recentText = recentFeeds.length ? recentFeeds.join('\n') : '없음';
+
+    // Claude 프롬프트 구성
     const prompt = `
 너는 헬스장 전문 인스타그램 피드 카피라이터야.
 규칙:
@@ -50,15 +53,15 @@ app.post('/generateFeed', async (req, res) => {
 ${JSON.stringify(videoMeta)}
 
 최근 피드 예시 (중복 피드 방지):
-${recentFeeds.join('\n')}
+${recentText}
 `;
+
+    // 요청 payload 확인용 로그
+    console.log('Prompt to Claude API:', prompt);
 
     const payload = {
       model: 'claude-2',
-      messages: [
-        { role: 'system', content: '헬스장 인스타 피드 작성 전문가' },
-        { role: 'user', content: prompt }
-      ],
+      prompt: prompt,
       max_tokens_to_sample: 300,
       temperature: 0.7
     };
@@ -67,32 +70,25 @@ ${recentFeeds.join('\n')}
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': CLAUDE_API_KEY,
-        'anthropic-version': '2023-06-01'
+        'x-api-key': CLAUDE_API_KEY
       },
       body: JSON.stringify(payload)
     });
 
     const data = await response.json();
+    console.log('Claude API response:', JSON.stringify(data));
 
-    // 전체 응답 로그
-    console.log('Claude API response:', JSON.stringify(data, null, 2));
-
-    // completion 처리 (문자열 또는 객체)
     let feedText = '';
-    if (typeof data.completion === 'string') {
-      feedText = data.completion.trim();
-    } else if (data.completion?.text) {
-      feedText = data.completion.text.trim();
-    }
-
-    if (!feedText) {
-      console.warn('⚠️ Claude API returned empty feedText');
+    if (data?.completion) feedText = data.completion.trim();
+    else {
+      console.warn('⚠️ Claude API returned empty feedText or error');
+      feedText = '[피드 생성 실패]';
     }
 
     res.json({ feedText });
+
   } catch (err) {
-    console.error('Error generating feed:', err);
+    console.error('Error in /generateFeed:', err);
     res.status(500).send('Error generating feed');
   }
 });
