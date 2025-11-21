@@ -57,12 +57,11 @@ Assistant:
 `;
 
     const payload = {
-      model: 'claude-2',
-      prompt: prompt,
-      max_tokens_to_sample: 300,
-      temperature: 0.7
-    };
-
+  model: 'claude-haiku-4-5-20251001', // ✅ 여기에 본인 모델 이름 사용
+  prompt: prompt,
+  max_tokens_to_sample: 300,
+  temperature: 0.7
+};
     const response = await fetch('https://api.anthropic.com/v1/complete', {
       method: 'POST',
       headers: {
